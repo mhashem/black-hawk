@@ -1,0 +1,140 @@
+Replit Prompt: Go Lang Microservices Dashboard
+
+Application Overview
+
+Create a Go Lang web application that provides a modern admin dashboard for monitoring Spring Boot microservices. The dashboard should periodically scrape Spring Boot actuator endpoints to display real-time health status, service information, and Kafka Streams topology states. The application should also allow users to register new microservices for monitoring.
+
+Core Features
+
+Backend (Go with Gin)
+
+•
+Service Registration: Implement API endpoints to register, update, and delete microservices. Store service information (name, URL, group) in a SQLite database.
+
+•
+Periodic Monitoring: Create a background process that scrapes the actuator endpoints of all registered services every 30 seconds.
+
+•
+Health & Info Scraping: Scrape /actuator/health for health status and component details, and /actuator/info for application metadata (Git branch, version, build time).
+
+•
+Kafka Streams Monitoring: Scrape /actuator/kafkastreams to get the state of Kafka Streams topologies.
+
+•
+API Endpoints: Provide a comprehensive set of RESTful API endpoints for the frontend to consume.
+
+Frontend (HTML/CSS/JavaScript)
+
+•
+Dashboard UI: Design a modern, responsive admin dashboard with a sidebar, header, and main content area.
+
+•
+Service Cards: Display each microservice as a card in a grid layout, showing its name, group, status, branch, and version.
+
+•
+Status Indicators: Use color-coded indicators (green for UP, red for DOWN, orange for UNKNOWN) to show the health status of each service.
+
+•
+Stats Overview: Display summary statistics, including the total number of services and counts for healthy, unhealthy, and unknown services.
+
+•
+Service Registration Form: Create a user-friendly form to register new services with fields for name, URL, and group.
+
+•
+Service Details Modal: When a service card is clicked, open a modal with detailed information about the service, including its health data and actuator info.
+
+•
+Real-time Updates: The dashboard should automatically refresh every 30 seconds to show the latest service statuses.
+
+Technology Stack
+
+•
+Backend: Go, Gin (for routing), GORM (for SQLite ORM), GoCron (for scheduling)
+
+•
+Frontend: HTML5, CSS3, JavaScript (vanilla)
+
+•
+Database: SQLite
+
+•
+Styling: Modern CSS with gradients, shadows, and responsive design. Use Font Awesome for icons.
+
+Project Structure
+
+Organize the project into the following directory structure:
+
+Plain Text
+
+
+/spring-microservice-dashboard
+├── cmd/web/main.go
+├── internal/
+│   ├── database/
+│   ├── handlers/
+│   ├── models/
+│   ├── monitor/
+│   └── routes/
+├── static/
+│   ├── css/
+│   └── js/
+├── templates/
+└── go.mod
+
+
+Detailed Instructions
+
+Backend Development
+
+1.
+Setup Go Project: Initialize a Go module and install the necessary dependencies: gin, gorm, gorm.io/driver/sqlite, and gocron.
+
+2.
+Data Models: Create Go structs in the internal/models directory for Service, HealthData, ServiceRegistration, ActuatorInfo, ActuatorHealth, and KafkaStreamsInfo.
+
+3.
+Database Layer: In internal/database, implement functions to interact with the SQLite database using GORM. Include functions for creating, reading, updating, and deleting services and health data.
+
+4.
+API Handlers: In internal/handlers, create Gin handlers for all API endpoints. These handlers will use the database layer to perform their operations.
+
+5.
+Monitoring Logic: In internal/monitor, implement the logic for periodically scraping the actuator endpoints. This should run in a separate goroutine.
+
+6.
+Routing: In internal/routes, define all the application routes, including API endpoints and frontend page routes.
+
+7.
+Main Application: In cmd/web/main.go, initialize the database, set up the Gin router, start the monitoring scheduler, and run the web server.
+
+Frontend Development
+
+1.
+HTML Templates: Create two HTML templates in the templates directory: dashboard.html and register.html.
+
+2.
+Dashboard Page: The dashboard.html template should include the sidebar, header, stats cards, and a grid for the service cards. Use JavaScript to fetch data from the /api/health/summary and /api/services endpoints and dynamically render the content.
+
+3.
+Registration Page: The register.html template should contain a form for registering new services. Use JavaScript to handle form submission and send a POST request to the /api/services endpoint.
+
+4.
+CSS Styling: Create a dashboard.css file in static/css to style the application. Use a modern design with a clean layout, good typography, and professional color scheme.
+
+5.
+JavaScript Logic: Create dashboard.js and register.js files in static/js. The dashboard.js file will handle fetching and displaying service data, while register.js will manage the registration form.
+
+Final Deliverables
+
+•
+A fully functional Go web application that meets all the requirements.
+
+•
+The complete source code, organized according to the specified project structure.
+
+•
+A README.md file with instructions on how to run the application.
+
+•
+A live, publicly accessible URL of the running application on Replit.
+
