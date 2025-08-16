@@ -1,6 +1,6 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
-import { storage, initializeDefaultData } from "./storage";
+import { IStorage, storage, initializeDefaultData } from "./storage";
 import { insertServiceSchema, insertCategorySchema, insertUserSchema } from "@shared/schema";
 import { z } from "zod";
 import axios from "axios";
@@ -9,13 +9,15 @@ import { setupAuth, isAuthenticated, requireAdmin } from "./replitAuth";
 // Background monitoring service
 class MonitoringService {
   private intervalId: NodeJS.Timeout | null = null;
+  private storage: IStorage | null = null;
 
-  start() {
+  start(storage: IStorage) {
+    this.storage = storage;
     // Run every 30 seconds
     this.intervalId = setInterval(() => {
       this.monitorServices();
     }, 30000);
-    
+
     // Also run immediately
     this.monitorServices();
   }
@@ -28,8 +30,9 @@ class MonitoringService {
   }
 
   private async monitorServices() {
+    if (!this.storage) return;
     try {
-      const services = await storage.getAllServices();
+      const services = await this.storage.getAllServices();
       
       for (const service of services) {
         await this.monitorService(service.id, service.url);
@@ -42,12 +45,12 @@ class MonitoringService {
   private async monitorService(serviceId: string, baseUrl: string) {
     try {
       // Monitor health endpoint
-      const healthResponse = await axios.get(`${baseUrl}/actuator/health`, {
+  const healthResponse = await axios.get(`${baseUrl}/actuator/health`, {
         timeout: 5000,
         validateStatus: () => true // Don't throw on 4xx/5xx
       });
 
-      await storage.upsertHealthData({
+  await this.storage?.upsertHealthData({
         serviceId,
         status: healthResponse.status === 200 && healthResponse.data?.status === 'UP' ? 'UP' : 'DOWN',
         healthComponents: healthResponse.data?.components || null,
@@ -60,7 +63,7 @@ class MonitoringService {
         });
 
         if (infoResponse.status === 200 && infoResponse.data) {
-          await storage.upsertServiceInfo({
+          await this.storage?.upsertServiceInfo({
             serviceId,
             version: infoResponse.data.build?.version || null,
             branch: infoResponse.data.git?.branch || null,
@@ -79,7 +82,7 @@ class MonitoringService {
 
         if (kafkaResponse.status === 200 && kafkaResponse.data) {
           const kafkaData = kafkaResponse.data;
-          await storage.upsertKafkaStreamsInfo({
+          await this.storage?.upsertKafkaStreamsInfo({
             serviceId,
             state: kafkaData.state || null,
             threads: kafkaData.threads ? kafkaData.threads.toString() : null,
@@ -93,7 +96,7 @@ class MonitoringService {
 
     } catch (error) {
       // Service is unreachable
-      await storage.upsertHealthData({
+      await this.storage?.upsertHealthData({
         serviceId,
         status: 'DOWN',
         healthComponents: null,
@@ -262,8 +265,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         // Viewers can only see services in their permitted categories
         const categoryIds = user?.categories?.map(c => c.id) || [];
         services = await storage.getServicesWithDetails(categoryIds);
-      }
-      
+      }      
       res.json(services);
     } catch (error) {
       console.error('Error fetching services:', error);
@@ -386,8 +388,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   const httpServer = createServer(app);
 
-  // Start monitoring service
-  monitoringService.start();
+  // Start monitoring service with the injected storage
+  monitoringService.start(storage);
 
   // Cleanup on server close
   httpServer.on('close', () => {

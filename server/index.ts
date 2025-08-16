@@ -1,10 +1,26 @@
 import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
+import { createStorage } from "./storage";
 import { setupVite, serveStatic, log } from "./vite";
 
 const app = express();
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
+
+// Simple request header logger to help debug 403 responses
+app.use((req, _res, next) => {
+  // only log for API requests
+  if (req.path.startsWith('/api')) {
+    const line = `REQ ${new Date().toISOString()} ${req.method} ${req.path} HEADERS=${JSON.stringify(req.headers)}\n`;
+    log(line);
+    try {
+      require('fs').appendFileSync('/tmp/blackhawk_req.log', line);
+    } catch (e) {
+      // ignore file write errors
+    }
+  }
+  next();
+});
 
 app.use((req, res, next) => {
   const start = Date.now();
@@ -37,7 +53,8 @@ app.use((req, res, next) => {
 });
 
 (async () => {
-  const server = await registerRoutes(app);
+  const storage = await createStorage();
+  const server = await registerRoutes(app, storage);
 
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
     const status = err.status || err.statusCode || 500;
@@ -61,11 +78,14 @@ app.use((req, res, next) => {
   // this serves both the API and the client.
   // It is the only port that is not firewalled.
   const port = parseInt(process.env.PORT || '5000', 10);
+  // Bind to localhost by default in development environments where
+  // binding to 0.0.0.0 with reusePort may be unsupported.
+  const host = process.env.HOST || "127.0.0.1";
+
   server.listen({
     port,
-    host: "0.0.0.0",
-    reusePort: true,
+    host,
   }, () => {
-    log(`serving on port ${port}`);
+    log(`serving on ${host}:${port}`);
   });
 })();
