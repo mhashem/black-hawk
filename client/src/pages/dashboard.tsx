@@ -5,8 +5,10 @@ import { StatsOverview } from "@/components/stats-overview";
 import { ServiceCard } from "@/components/service-card";
 import { ServiceDetailsModal } from "@/components/service-details-modal";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/hooks/useAuth";
 import { api } from "@/lib/api";
-import type { ServiceWithDetails } from "@shared/schema";
+import { isUnauthorizedError } from "@/lib/authUtils";
+import type { ServiceWithDetails, Category } from "@shared/schema";
 import { useState, useEffect } from "react";
 import { formatDistanceToNow } from "date-fns";
 import { Link } from "wouter";
@@ -14,8 +16,25 @@ import { Link } from "wouter";
 export default function Dashboard() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const { user, isAuthenticated, isLoading: authLoading, isAdmin } = useAuth();
   const [selectedService, setSelectedService] = useState<ServiceWithDetails | null>(null);
   const [filter, setFilter] = useState<"all" | "healthy" | "issues">("all");
+  const [categoryFilter, setCategoryFilter] = useState<string>("all");
+
+  // Redirect to login if not authenticated
+  useEffect(() => {
+    if (!authLoading && !isAuthenticated) {
+      toast({
+        title: "Unauthorized",
+        description: "You are logged out. Logging in again...",
+        variant: "destructive",
+      });
+      setTimeout(() => {
+        window.location.href = "/api/login";
+      }, 500);
+      return;
+    }
+  }, [isAuthenticated, authLoading, toast]);
 
   const {
     data: services,
@@ -25,15 +44,54 @@ export default function Dashboard() {
     queryKey: ["/api/services"],
     queryFn: () => api.getServices(),
     refetchInterval: 30000, // Auto-refresh every 30 seconds
+    enabled: isAuthenticated,
   });
+
+  // Handle services error
+  useEffect(() => {
+    if (servicesError && isUnauthorizedError(servicesError as Error)) {
+      toast({
+        title: "Unauthorized",
+        description: "You are logged out. Logging in again...",
+        variant: "destructive",
+      });
+      setTimeout(() => {
+        window.location.href = "/api/login";
+      }, 500);
+    }
+  }, [servicesError, toast]);
 
   const {
     data: summary,
     isLoading: summaryLoading,
+    error: summaryError,
   } = useQuery({
     queryKey: ["/api/health/summary"],
     queryFn: () => api.getHealthSummary(),
     refetchInterval: 30000, // Auto-refresh every 30 seconds
+    enabled: isAuthenticated,
+  });
+
+  // Handle summary error
+  useEffect(() => {
+    if (summaryError && isUnauthorizedError(summaryError as Error)) {
+      toast({
+        title: "Unauthorized",
+        description: "You are logged out. Logging in again...",
+        variant: "destructive",
+      });
+      setTimeout(() => {
+        window.location.href = "/api/login";
+      }, 500);
+    }
+  }, [summaryError, toast]);
+
+  const {
+    data: categories,
+  } = useQuery({
+    queryKey: ["/api/categories"],
+    queryFn: () => api.getCategories(),
+    enabled: isAuthenticated,
   });
 
   const refreshMutation = useMutation({
@@ -46,7 +104,18 @@ export default function Dashboard() {
         description: "Services refreshed successfully",
       });
     },
-    onError: () => {
+    onError: (error) => {
+      if (isUnauthorizedError(error as Error)) {
+        toast({
+          title: "Unauthorized",
+          description: "You are logged out. Logging in again...",
+          variant: "destructive",
+        });
+        setTimeout(() => {
+          window.location.href = "/api/login";
+        }, 500);
+        return;
+      }
       toast({
         title: "Error",
         description: "Failed to refresh services",
@@ -56,15 +125,42 @@ export default function Dashboard() {
   });
 
   const filteredServices = services?.filter((service) => {
+    // Filter by health status
+    let healthMatches = true;
     switch (filter) {
       case "healthy":
-        return service.healthData?.status === "UP";
+        healthMatches = service.healthData?.status === "UP";
+        break;
       case "issues":
-        return service.healthData?.status === "DOWN" || !service.healthData?.status;
+        healthMatches = service.healthData?.status === "DOWN" || !service.healthData?.status;
+        break;
       default:
-        return true;
+        healthMatches = true;
     }
+    
+    // Filter by category
+    let categoryMatches = true;
+    if (categoryFilter !== "all") {
+      categoryMatches = service.categoryId === categoryFilter;
+    }
+    
+    return healthMatches && categoryMatches;
   }) || [];
+
+  if (authLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-4"></div>
+          <p className="text-slate-600">Loading...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!isAuthenticated) {
+    return null;
+  }
 
   if (servicesError) {
     return (
@@ -111,20 +207,24 @@ export default function Dashboard() {
                   </span>
                 </span>
               </div>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => refreshMutation.mutate()}
-                disabled={refreshMutation.isPending}
-              >
-                <i className={`fas fa-sync-alt ${refreshMutation.isPending ? 'animate-spin' : ''}`}></i>
-              </Button>
-              <Link href="/register">
-                <Button size="sm">
-                  <i className="fas fa-plus mr-2"></i>
-                  Add Service
+              {isAdmin && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => refreshMutation.mutate()}
+                  disabled={refreshMutation.isPending}
+                >
+                  <i className={`fas fa-sync-alt ${refreshMutation.isPending ? 'animate-spin' : ''}`}></i>
                 </Button>
-              </Link>
+              )}
+              {isAdmin && (
+                <Link href="/register">
+                  <Button size="sm">
+                    <i className="fas fa-plus mr-2"></i>
+                    Add Service
+                  </Button>
+                </Link>
+              )}
             </div>
           </div>
         </header>
@@ -135,41 +235,79 @@ export default function Dashboard() {
           <StatsOverview summary={summary!} isLoading={summaryLoading} />
 
           {/* Service Cards Grid */}
-          <div className="mb-6 flex items-center justify-between">
-            <h3 className="text-lg font-semibold text-slate-800">
-              Services Overview
-            </h3>
-            <div className="flex items-center space-x-2">
-              <button
-                className={`px-3 py-1 text-sm rounded-md transition-colors ${
-                  filter === "all"
-                    ? "bg-slate-100 text-slate-600"
-                    : "text-slate-600 hover:bg-slate-100"
-                }`}
-                onClick={() => setFilter("all")}
-              >
-                All
-              </button>
-              <button
-                className={`px-3 py-1 text-sm rounded-md transition-colors ${
-                  filter === "healthy"
-                    ? "bg-slate-100 text-slate-600"
-                    : "text-slate-600 hover:bg-slate-100"
-                }`}
-                onClick={() => setFilter("healthy")}
-              >
-                Healthy
-              </button>
-              <button
-                className={`px-3 py-1 text-sm rounded-md transition-colors ${
-                  filter === "issues"
-                    ? "bg-slate-100 text-slate-600"
-                    : "text-slate-600 hover:bg-slate-100"
-                }`}
-                onClick={() => setFilter("issues")}
-              >
-                Issues
-              </button>
+          <div className="mb-6">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-slate-800">
+                Services Overview
+              </h3>
+              <div className="flex items-center space-x-4">
+                {/* Category Filter */}
+                <div className="flex items-center space-x-2">
+                  <span className="text-sm text-slate-600">Category:</span>
+                  <div className="flex items-center space-x-1">
+                    <button
+                      className={`px-3 py-1 text-sm rounded-md transition-colors ${
+                        categoryFilter === "all"
+                          ? "bg-blue-100 text-blue-600"
+                          : "text-slate-600 hover:bg-slate-100"
+                      }`}
+                      onClick={() => setCategoryFilter("all")}
+                    >
+                      All
+                    </button>
+                    {categories?.map((category) => (
+                      <button
+                        key={category.id}
+                        className={`px-3 py-1 text-sm rounded-md transition-colors ${
+                          categoryFilter === category.id
+                            ? "bg-blue-100 text-blue-600"
+                            : "text-slate-600 hover:bg-slate-100"
+                        }`}
+                        onClick={() => setCategoryFilter(category.id)}
+                      >
+                        {category.name}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                
+                {/* Status Filter */}
+                <div className="flex items-center space-x-2">
+                  <span className="text-sm text-slate-600">Status:</span>
+                  <div className="flex items-center space-x-1">
+                    <button
+                      className={`px-3 py-1 text-sm rounded-md transition-colors ${
+                        filter === "all"
+                          ? "bg-slate-100 text-slate-600"
+                          : "text-slate-600 hover:bg-slate-100"
+                      }`}
+                      onClick={() => setFilter("all")}
+                    >
+                      All
+                    </button>
+                    <button
+                      className={`px-3 py-1 text-sm rounded-md transition-colors ${
+                        filter === "healthy"
+                          ? "bg-slate-100 text-slate-600"
+                          : "text-slate-600 hover:bg-slate-100"
+                      }`}
+                      onClick={() => setFilter("healthy")}
+                    >
+                      Healthy
+                    </button>
+                    <button
+                      className={`px-3 py-1 text-sm rounded-md transition-colors ${
+                        filter === "issues"
+                          ? "bg-slate-100 text-slate-600"
+                          : "text-slate-600 hover:bg-slate-100"
+                      }`}
+                      onClick={() => setFilter("issues")}
+                    >
+                      Issues
+                    </button>
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
 

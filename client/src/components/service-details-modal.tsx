@@ -4,9 +4,28 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/hooks/useAuth";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { api } from "@/lib/api";
+import { isUnauthorizedError } from "@/lib/authUtils";
 import type { ServiceWithDetails } from "@shared/schema";
 import { formatDistanceToNow } from "date-fns";
+import { useState } from "react";
 
 interface ServiceDetailsModalProps {
   service: ServiceWithDetails | null;
@@ -19,7 +38,52 @@ export function ServiceDetailsModal({
   open,
   onClose,
 }: ServiceDetailsModalProps) {
+  const { toast } = useToast();
+  const { isAdmin } = useAuth();
+  const queryClient = useQueryClient();
+  const [deleteConfirmation, setDeleteConfirmation] = useState("");
+  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
+
   if (!service) return null;
+
+  const deleteServiceMutation = useMutation({
+    mutationFn: api.deleteService,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/services"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/health/summary"] });
+      toast({
+        title: "Success",
+        description: "Service deleted successfully",
+      });
+      setIsDeleteDialogOpen(false);
+      setDeleteConfirmation("");
+      onClose();
+    },
+    onError: (error) => {
+      if (isUnauthorizedError(error as Error)) {
+        toast({
+          title: "Unauthorized",
+          description: "You are logged out. Logging in again...",
+          variant: "destructive",
+        });
+        setTimeout(() => {
+          window.location.href = "/api/login";
+        }, 500);
+        return;
+      }
+      toast({
+        title: "Error",
+        description: "Failed to delete service",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const handleDeleteService = () => {
+    if (deleteConfirmation === service.name) {
+      deleteServiceMutation.mutate(service.id);
+    }
+  };
 
   const getStatusColor = (status?: string) => {
     switch (status) {
@@ -77,8 +141,8 @@ export function ServiceDetailsModal({
                 </span>
               </div>
               <div>
-                <span className="text-slate-500">Group:</span>
-                <span className="ml-2 font-medium">{service.group}</span>
+                <span className="text-slate-500">Category:</span>
+                <span className="ml-2 font-medium">{service.category?.name || "Uncategorized"}</span>
               </div>
               <div>
                 <span className="text-slate-500">URL:</span>
@@ -194,7 +258,62 @@ export function ServiceDetailsModal({
           </div>
         </div>
 
-        <div className="flex justify-end mt-6">
+        <div className="flex justify-between mt-6">
+          <div>
+            {isAdmin && (
+              <AlertDialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
+                <AlertDialogTrigger asChild>
+                  <Button variant="destructive" size="sm">
+                    <i className="fas fa-trash mr-2"></i>
+                    Delete Service
+                  </Button>
+                </AlertDialogTrigger>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>Delete Service</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      This action cannot be undone. This will permanently delete the service
+                      <strong className="font-medium"> {service.name}</strong> and all its monitoring data.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <div className="space-y-4">
+                    <div>
+                      <Label htmlFor="delete-confirmation">Type the service name to confirm deletion:</Label>
+                      <Input
+                        id="delete-confirmation"
+                        value={deleteConfirmation}
+                        onChange={(e) => setDeleteConfirmation(e.target.value)}
+                        placeholder={service.name}
+                        className="mt-2"
+                      />
+                    </div>
+                  </div>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel onClick={() => setDeleteConfirmation("")}>
+                      Cancel
+                    </AlertDialogCancel>
+                    <AlertDialogAction
+                      onClick={handleDeleteService}
+                      disabled={deleteConfirmation !== service.name || deleteServiceMutation.isPending}
+                      className="bg-red-600 hover:bg-red-700"
+                    >
+                      {deleteServiceMutation.isPending ? (
+                        <>
+                          <i className="fas fa-spinner animate-spin mr-2"></i>
+                          Deleting...
+                        </>
+                      ) : (
+                        <>
+                          <i className="fas fa-trash mr-2"></i>
+                          Delete Service
+                        </>
+                      )}
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
+            )}
+          </div>
           <Button variant="outline" onClick={onClose}>
             Close
           </Button>
