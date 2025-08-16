@@ -190,4 +190,45 @@ export class MemStorage implements IStorage {
   }
 }
 
+let storageImpl: any = null;
+
+if (process.env.DATABASE_URL) {
+  try {
+    // lazy-import the Postgres implementation when DATABASE_URL is present
+    // to avoid adding runtime requirements when not used.
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const PgStorage = require('./storage-pg').default;
+    storageImpl = new PgStorage(process.env.DATABASE_URL);
+  } catch (err) {
+    console.warn('Failed to load PgStorage, falling back to in-memory storage:', err);
+    storageImpl = new MemStorage();
+  }
+} else {
+  storageImpl = new MemStorage();
+}
+
+export async function createStorage() {
+  if (storageImpl && typeof storageImpl.close === 'function') {
+    // already created
+    return storageImpl;
+  }
+
+  if (process.env.DATABASE_URL) {
+    try {
+      const mod = await import('./storage-pg');
+      const PgStorage = mod.default;
+      storageImpl = new PgStorage(process.env.DATABASE_URL);
+      return storageImpl;
+    } catch (err) {
+      console.warn('Failed to load PgStorage via dynamic import, falling back to in-memory storage:', err);
+      storageImpl = new MemStorage();
+      return storageImpl;
+    }
+  }
+
+  storageImpl = new MemStorage();
+  return storageImpl;
+}
+
+// keep a sync export for code that expects it (will be the in-memory storage)
 export const storage = new MemStorage();
