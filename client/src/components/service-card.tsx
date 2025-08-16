@@ -71,7 +71,7 @@ export function ServiceCard({ service, onClick }: ServiceCardProps) {
         <h4 className="text-lg font-semibold text-slate-800 mb-2">
           {service.name}
         </h4>
-        <p className="text-sm text-slate-600 mb-3">{service.group}</p>
+        <p className="text-sm text-slate-600 mb-3">{service.category?.name || "Uncategorized"}</p>
 
         <div className="space-y-2 text-sm">
           <div className="flex justify-between">
